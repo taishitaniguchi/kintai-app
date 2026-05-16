@@ -19,6 +19,7 @@ async function main() {
       email: 'admin@example.com',
       password: adminPassword,
       role: 'ADMIN',
+      team: 'taniguchi',
     },
   })
 
@@ -30,6 +31,8 @@ async function main() {
       email: 'user1@example.com',
       password: userPassword,
       role: 'EMPLOYEE',
+      team: 'taniguchi',
+      hourlyWage: 1000,
     },
   })
 
@@ -41,6 +44,48 @@ async function main() {
       email: 'user2@example.com',
       password: userPassword,
       role: 'EMPLOYEE',
+      team: 'suzuka',
+      hourlyWage: 1100,
+    },
+  })
+
+  await prisma.facility.upsert({
+    where: { name: 'yadotaniguchi' },
+    update: {},
+    create: {
+      name: 'yadotaniguchi',
+      displayName: '谷口邸',
+      team: 'taniguchi',
+    },
+  })
+
+  await prisma.facility.upsert({
+    where: { name: 'yadosuzuka1' },
+    update: {},
+    create: {
+      name: 'yadosuzuka1',
+      displayName: '鈴鹿①',
+      team: 'suzuka',
+    },
+  })
+
+  await prisma.facility.upsert({
+    where: { name: 'yadosuzuka2' },
+    update: {},
+    create: {
+      name: 'yadosuzuka2',
+      displayName: '鈴鹿②',
+      team: 'suzuka',
+    },
+  })
+
+  await prisma.facility.upsert({
+    where: { name: 'yadosuzuka3' },
+    update: {},
+    create: {
+      name: 'yadosuzuka3',
+      displayName: '鈴鹿③',
+      team: 'suzuka',
     },
   })
 

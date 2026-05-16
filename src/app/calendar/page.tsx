@@ -19,19 +19,44 @@ export default async function CalendarPage({
   const start = new Date(year, month - 1, 1)
   const end = new Date(year, month, 0, 23, 59, 59)
   const daysInMonth = getDaysInMonth(start)
-  const firstDayOfWeek = getDay(startOfMonth(start)) // 0=日
+  const firstDayOfWeek = getDay(startOfMonth(start))
 
   const user = await prisma.user.findUnique({
     where: { id: session.userId },
-    select: { name: true, hourlyWage: true },
+    select: { name: true, hourlyWage: true, team: true, role: true },
   })
 
-  const attendances = await prisma.attendance.findMany({
-    where: {
-      userId: session.userId,
-      clockIn: { gte: start, lte: end },
-    },
-  })
+  const isAdmin = session.role === 'ADMIN'
+  const userTeam = user?.team ?? 'taniguchi'
+
+  const [attendances, shifts, reservations] = await Promise.all([
+    prisma.attendance.findMany({
+      where: {
+        userId: session.userId,
+        clockIn: { gte: start, lte: end },
+      },
+    }),
+    prisma.shift.findMany({
+      where: {
+        ...(isAdmin ? {} : { userId: session.userId }),
+        date: { gte: start, lte: end },
+      },
+      include: {
+        user: { select: { name: true, team: true } },
+        facility: { select: { displayName: true, team: true } },
+      },
+      orderBy: { date: 'asc' },
+    }),
+    // 予約は自分のチームの施設のみ表示（管理者は全部）
+    prisma.reservation.findMany({
+      where: {
+        date: { gte: start, lte: end },
+        ...(isAdmin ? {} : { facility: { team: userTeam } }),
+      },
+      include: { facility: { select: { displayName: true, team: true } } },
+      orderBy: [{ date: 'asc' }, { facility: { name: 'asc' } }],
+    }),
+  ])
 
   // 日付 → 勤怠レコードのマップ
   const attendanceMap = new Map<number, { clockIn: Date; clockOut: Date | null; mins: number }>()
@@ -47,6 +72,22 @@ export default async function CalendarPage({
     })
   }
 
+  // 日付 → シフト配列のマップ
+  const shiftMap = new Map<number, typeof shifts>()
+  for (const s of shifts) {
+    const day = new Date(s.date).getDate()
+    if (!shiftMap.has(day)) shiftMap.set(day, [])
+    shiftMap.get(day)!.push(s)
+  }
+
+  // 日付 → 予約配列のマップ
+  const reservationMap = new Map<number, typeof reservations>()
+  for (const r of reservations) {
+    const day = new Date(r.date).getDate()
+    if (!reservationMap.has(day)) reservationMap.set(day, [])
+    reservationMap.get(day)!.push(r)
+  }
+
   const totalMinutes = Array.from(attendanceMap.values()).reduce((s, a) => s + a.mins, 0)
   const totalHours = totalMinutes / 60
   const wage = user?.hourlyWage ?? 0
@@ -57,7 +98,6 @@ export default async function CalendarPage({
 
   const WEEK_DAYS = ['日', '月', '火', '水', '木', '金', '土']
 
-  // カレンダーのグリッド（空白 + 日付）
   const cells: (number | null)[] = [
     ...Array(firstDayOfWeek).fill(null),
     ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
@@ -71,27 +111,18 @@ export default async function CalendarPage({
           <Link href="/dashboard" className="text-sm text-blue-600 hover:underline">ダッシュボード</Link>
           <Link href="/history" className="text-sm text-blue-600 hover:underline">履歴</Link>
           <Link href="/settings" className="text-sm text-blue-600 hover:underline">設定</Link>
+          {isAdmin && (
+            <Link href="/admin" className="text-sm text-blue-600 hover:underline">管理者</Link>
+          )}
         </div>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-8">
         {/* 月ナビゲーション */}
         <div className="flex items-center justify-between mb-4">
-          <Link
-            href={`/calendar?year=${prevMonth.year}&month=${prevMonth.month}`}
-            className="text-sm text-blue-600 hover:underline"
-          >
-            ← 前月
-          </Link>
-          <h2 className="text-lg font-bold text-gray-800">
-            {format(start, 'yyyy年M月', { locale: ja })}
-          </h2>
-          <Link
-            href={`/calendar?year=${nextMonth.year}&month=${nextMonth.month}`}
-            className="text-sm text-blue-600 hover:underline"
-          >
-            翌月 →
-          </Link>
+          <Link href={`/calendar?year=${prevMonth.year}&month=${prevMonth.month}`} className="text-sm text-blue-600 hover:underline">← 前月</Link>
+          <h2 className="text-lg font-bold text-gray-800">{format(start, 'yyyy年M月', { locale: ja })}</h2>
+          <Link href={`/calendar?year=${nextMonth.year}&month=${nextMonth.month}`} className="text-sm text-blue-600 hover:underline">翌月 →</Link>
         </div>
 
         {/* 月次サマリー */}
@@ -110,20 +141,22 @@ export default async function CalendarPage({
           <div>
             <p className="text-xs text-gray-500 mb-1">今月の給与</p>
             {wage > 0 ? (
-              <p className="text-2xl font-bold text-green-600">
-                ¥{totalWage.toLocaleString()}
-              </p>
+              <p className="text-2xl font-bold text-green-600">¥{totalWage.toLocaleString()}</p>
             ) : (
-              <Link href="/settings" className="text-sm text-blue-500 hover:underline">
-                時給を設定する
-              </Link>
+              <Link href="/settings" className="text-sm text-blue-500 hover:underline">時給を設定する</Link>
             )}
           </div>
         </div>
 
+        {/* 凡例 */}
+        <div className="flex items-center gap-3 mb-3 text-xs text-gray-500 flex-wrap">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-100 inline-block"></span>出勤</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-purple-100 inline-block"></span>シフト</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-100 inline-block"></span>予約</span>
+        </div>
+
         {/* カレンダーグリッド */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          {/* 曜日ヘッダー */}
           <div className="grid grid-cols-7 border-b">
             {WEEK_DAYS.map((d, i) => (
               <div
@@ -136,28 +169,29 @@ export default async function CalendarPage({
               </div>
             ))}
           </div>
-          {/* 日付グリッド */}
           <div className="grid grid-cols-7">
             {cells.map((day, idx) => {
               const rec = day ? attendanceMap.get(day) : null
+              const dayShifts = day ? (shiftMap.get(day) ?? []) : []
+              const dayReservations = day ? (reservationMap.get(day) ?? []) : []
               const isToday =
                 day === now.getDate() &&
                 month === now.getMonth() + 1 &&
                 year === now.getFullYear()
-              const dayOfWeek = (idx) % 7
+              const dayOfWeek = idx % 7
               const isSun = dayOfWeek === 0
               const isSat = dayOfWeek === 6
 
               return (
                 <div
                   key={idx}
-                  className={`min-h-[72px] p-1 border-b border-r last:border-r-0 ${
+                  className={`min-h-[80px] p-1 border-b border-r last:border-r-0 ${
                     !day ? 'bg-gray-50' : ''
                   }`}
                 >
                   {day && (
                     <>
-                      <div className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-1 ${
+                      <div className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full mb-0.5 ${
                         isToday
                           ? 'bg-blue-600 text-white'
                           : isSun
@@ -168,27 +202,38 @@ export default async function CalendarPage({
                       }`}>
                         {day}
                       </div>
+
+                      {/* 勤怠 */}
                       {rec && (
-                        <div className="space-y-0.5">
-                          <div className="text-[10px] text-green-700 bg-green-50 rounded px-1">
+                        <div className="space-y-0.5 mb-0.5">
+                          <div className="text-[9px] text-green-700 bg-green-50 rounded px-1 truncate">
                             {format(rec.clockIn, 'HH:mm')}
+                            {rec.clockOut ? `→${format(rec.clockOut, 'HH:mm')}` : '〜'}
                           </div>
-                          {rec.clockOut ? (
-                            <div className="text-[10px] text-red-700 bg-red-50 rounded px-1">
-                              {format(rec.clockOut, 'HH:mm')}
-                            </div>
-                          ) : (
-                            <div className="text-[10px] text-orange-600 bg-orange-50 rounded px-1">
-                              出勤中
-                            </div>
-                          )}
-                          {rec.mins > 0 && (
-                            <div className="text-[10px] text-gray-500">
-                              {Math.floor(rec.mins / 60)}h{rec.mins % 60}m
+                        </div>
+                      )}
+
+                      {/* シフト */}
+                      {dayShifts.map((s) => (
+                        <div key={s.id} className="text-[9px] text-purple-700 bg-purple-50 rounded px-1 mb-0.5 truncate">
+                          {isAdmin ? `${s.user.name} ` : ''}{s.facility.displayName}
+                          {s.startTime ? ` ${s.startTime}` : ''}
+                        </div>
+                      ))}
+
+                      {/* 予約 */}
+                      {dayReservations.map((r) => (
+                        <div key={r.id} className="text-[9px] text-orange-700 bg-orange-50 rounded px-1 mb-0.5">
+                          <div className="truncate">{r.facility.displayName} {r.guestCount}人</div>
+                          {(r.childChairs > 0 || r.babyBeds > 0) && (
+                            <div className="text-[8px] text-orange-500">
+                              {r.childChairs > 0 && `椅子${r.childChairs}`}
+                              {r.childChairs > 0 && r.babyBeds > 0 && ' '}
+                              {r.babyBeds > 0 && `BB${r.babyBeds}`}
                             </div>
                           )}
                         </div>
-                      )}
+                      ))}
                     </>
                   )}
                 </div>
