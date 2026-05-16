@@ -15,6 +15,19 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "勤怠管理システム",
   description: "出退勤管理・勤務時間集計",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "勤怠管理",
+  },
+  formatDetection: { telephone: false },
+};
+
+export const viewport = {
+  themeColor: "#2563eb",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
