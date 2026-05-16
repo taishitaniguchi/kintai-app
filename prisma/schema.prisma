@@ -18,6 +18,7 @@ model User {
   email       String       @unique
   password    String
   role        String       @default("EMPLOYEE")
+  hourlyWage  Int          @default(0)
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   attendances Attendance[]

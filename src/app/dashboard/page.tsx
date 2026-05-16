@@ -38,7 +38,9 @@ export default async function DashboardPage() {
           {session.role === 'ADMIN' && (
             <a href="/admin" className="text-sm text-blue-600 hover:underline">管理者画面</a>
           )}
+          <a href="/calendar" className="text-sm text-blue-600 hover:underline">カレンダー</a>
           <a href="/history" className="text-sm text-blue-600 hover:underline">履歴</a>
+          <a href="/settings" className="text-sm text-blue-600 hover:underline">設定</a>
           <form action={logout}>
             <button type="submit" className="text-sm text-gray-500 hover:text-gray-700">
               ログアウト
